@@ -17,6 +17,8 @@ package io.confluent.connect.s3;
 
 import com.amazonaws.AmazonClientException;
 import io.confluent.connect.s3.S3SinkConnectorConfig.BehaviorOnNullValues;
+import io.confluent.connect.s3.metastore.GlueMetastore;
+import io.confluent.connect.s3.metastore.IMetastore;
 import org.apache.kafka.clients.consumer.OffsetAndMetadata;
 import org.apache.kafka.common.TopicPartition;
 import org.apache.kafka.connect.errors.ConnectException;
@@ -51,6 +53,7 @@ public class S3SinkTask extends SinkTask {
   private String url;
   private long timeoutMs;
   private S3Storage storage;
+  private IMetastore metastore;
   private final Map<TopicPartition, TopicPartitionWriter> topicPartitionWriters;
   private Partitioner<?> partitioner;
   private Format<S3SinkConnectorConfig, String> format;
@@ -103,6 +106,7 @@ public class S3SinkTask extends SinkTask {
           connectorConfig,
           url
       );
+      metastore = new GlueMetastore(connectorConfig);
       if (!storage.bucketExists()) {
         throw new DataException("No-existent S3 bucket: " + connectorConfig.getBucketName());
       }
@@ -278,7 +282,8 @@ public class S3SinkTask extends SinkTask {
         partitioner,
         connectorConfig,
         context,
-        time
+        time,
+            metastore
     );
   }
 

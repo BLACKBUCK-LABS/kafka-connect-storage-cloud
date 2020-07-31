@@ -48,7 +48,7 @@ import java.util.List;
  *
  * <p>The implementation has borrowed the general structure of Hadoop's implementation.
  */
-public class S3OutputStream extends PositionOutputStream {
+public class  S3OutputStream extends PositionOutputStream {
   private static final Logger log = LoggerFactory.getLogger(S3OutputStream.class);
   private final AmazonS3 s3;
   private final S3SinkConnectorConfig connectorConfig;

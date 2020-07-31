@@ -16,6 +16,8 @@
 package io.confluent.connect.s3;
 
 import com.amazonaws.SdkClientException;
+import io.confluent.connect.s3.metastore.GlueMetastore;
+import io.confluent.connect.s3.metastore.IMetastore;
 import io.confluent.connect.s3.storage.S3Storage;
 import org.apache.kafka.common.TopicPartition;
 import org.apache.kafka.connect.data.Schema;
@@ -57,8 +59,10 @@ public class TopicPartitionWriter {
   private final Map<String, String> commitFiles;
   private final Map<String, RecordWriter> writers;
   private final Map<String, Schema> currentSchemas;
+  private Schema currentGlobalSchema;
   private final TopicPartition tp;
   private final S3Storage storage;
+  private final IMetastore metastore;
   private final Partitioner<?> partitioner;
   private final TimestampExtractor timestampExtractor;
   private String topicsDir;
@@ -92,6 +96,7 @@ public class TopicPartitionWriter {
   private DateTimeZone timeZone;
   private final S3SinkConnectorConfig connectorConfig;
   private static final Time SYSTEM_TIME = new SystemTime();
+  private  boolean schemaToBeChanged = false;
 
   public TopicPartitionWriter(TopicPartition tp,
                               S3Storage storage,
@@ -99,7 +104,7 @@ public class TopicPartitionWriter {
                               Partitioner<?> partitioner,
                               S3SinkConnectorConfig connectorConfig,
                               SinkTaskContext context) {
-    this(tp, storage, writerProvider, partitioner, connectorConfig, context, SYSTEM_TIME);
+    this(tp, storage, writerProvider, partitioner, connectorConfig, context, SYSTEM_TIME, null);
   }
 
   // Visible for testing
@@ -109,11 +114,13 @@ public class TopicPartitionWriter {
                        Partitioner<?> partitioner,
                        S3SinkConnectorConfig connectorConfig,
                        SinkTaskContext context,
-                       Time time) {
+                       Time time,
+                      IMetastore metastore ) {
     this.connectorConfig = connectorConfig;
     this.time = time;
     this.tp = tp;
     this.storage = storage;
+    this.metastore = metastore;
     this.context = context;
     this.writerProvider = writerProvider;
     this.partitioner = partitioner;
@@ -209,6 +216,7 @@ public class TopicPartitionWriter {
             baseRecordTimestamp = currentTimestamp;
           }
         }
+
         Schema valueSchema = record.valueSchema();
         String encodedPartition = partitioner.encodePartition(record, now);
         Schema currentValueSchema = currentSchemas.get(encodedPartition);
@@ -216,7 +224,13 @@ public class TopicPartitionWriter {
           currentSchemas.put(encodedPartition, valueSchema);
           currentValueSchema = valueSchema;
         }
-
+        if (currentGlobalSchema == null ||
+                !(encodedPartition.equalsIgnoreCase(currentEncodedPartition)) ||
+                (compatibility.
+                        shouldChangeSchema(record, null, currentGlobalSchema))) {
+          currentGlobalSchema = record.valueSchema();
+          schemaToBeChanged = true;
+        }
         if (!checkRotationOrAppend(
             record,
             currentValueSchema,
@@ -226,9 +240,14 @@ public class TopicPartitionWriter {
         )) {
           break;
         }
+
         // fallthrough
       case SHOULD_ROTATE:
         commitFiles();
+        if(schemaToBeChanged) {
+          updateMetastore();
+          schemaToBeChanged = false;
+        }
         nextState();
         // fallthrough
       case FILE_COMMITTED:
@@ -260,6 +279,7 @@ public class TopicPartitionWriter {
           encodedPartition,
           currentOffset
       );
+
       currentSchemas.put(encodedPartition, valueSchema);
       nextState();
     } else if (rotateOnTime(encodedPartition, currentTimestamp, now)) {
@@ -506,6 +526,9 @@ public class TopicPartitionWriter {
     endOffsets.put(currentEncodedPartition, currentOffset);
   }
 
+  private void updateMetastore(){
+    metastore.updateMetastore(tp.topic().toString());
+  }
   private void commitFiles() {
     currentStartOffset = minStartOffset();
     try {
@@ -518,6 +541,7 @@ public class TopicPartitionWriter {
         startOffsets.remove(encodedPartition);
         endOffsets.remove(encodedPartition);
         recordCounts.remove(encodedPartition);
+
         log.debug("Committed {} for {}", entry.getValue(), tp);
       }
     } catch (ConnectException e) {
