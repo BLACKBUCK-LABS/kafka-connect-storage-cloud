@@ -16,7 +16,6 @@
 package io.confluent.connect.s3;
 
 import com.amazonaws.SdkClientException;
-import io.confluent.connect.s3.metastore.GlueMetastore;
 import io.confluent.connect.s3.metastore.IMetastore;
 import io.confluent.connect.s3.storage.S3Storage;
 import org.apache.kafka.common.TopicPartition;
@@ -59,7 +58,7 @@ public class TopicPartitionWriter {
   private final Map<String, String> commitFiles;
   private final Map<String, RecordWriter> writers;
   private final Map<String, Schema> currentSchemas;
-  private Schema currentGlobalSchema;
+  private Schema globalCurrentSchema;
   private final TopicPartition tp;
   private final S3Storage storage;
   private final IMetastore metastore;
@@ -79,6 +78,7 @@ public class TopicPartitionWriter {
   private Long currentStartOffset;
   private Long currentTimestamp;
   private String currentEncodedPartition;
+  private String globalCurrentEncodedPartition;
   private Long baseRecordTimestamp;
   private Long offsetToCommit;
   private final RecordWriterProvider<S3SinkConnectorConfig> writerProvider;
@@ -97,6 +97,22 @@ public class TopicPartitionWriter {
   private final S3SinkConnectorConfig connectorConfig;
   private static final Time SYSTEM_TIME = new SystemTime();
   private  boolean schemaToBeChanged = false;
+
+
+  public void setGlobalCurrentSchema(Schema globalCurrentSchema) {
+    this.globalCurrentSchema = globalCurrentSchema;
+  }
+  public Schema getGlobalCurrentSchema() {
+    return globalCurrentSchema;
+  }
+
+  public void setGlobalCurrentEncodedPartition(String globalCurrentEncodedPartition) {
+    this.globalCurrentEncodedPartition = globalCurrentEncodedPartition;
+  }
+  public String getCurrentEncodedPartition() {
+    return currentEncodedPartition;
+  }
+
 
   public TopicPartitionWriter(TopicPartition tp,
                               S3Storage storage,
@@ -224,12 +240,14 @@ public class TopicPartitionWriter {
           currentSchemas.put(encodedPartition, valueSchema);
           currentValueSchema = valueSchema;
         }
-        if (currentGlobalSchema == null ||
-                !(encodedPartition.equalsIgnoreCase(currentEncodedPartition)) ||
-                (compatibility.
-                        shouldChangeSchema(record, null, currentGlobalSchema))) {
-          currentGlobalSchema = record.valueSchema();
-          schemaToBeChanged = true;
+        if(!schemaToBeChanged) {
+            if (globalCurrentSchema == null ||
+                    (compatibility.
+                            shouldChangeSchema(record, null, globalCurrentSchema))) {
+                globalCurrentSchema = record.valueSchema();
+                schemaToBeChanged = true;
+            }
+
         }
         if (!checkRotationOrAppend(
             record,
@@ -244,10 +262,6 @@ public class TopicPartitionWriter {
         // fallthrough
       case SHOULD_ROTATE:
         commitFiles();
-        if(schemaToBeChanged) {
-          updateMetastore();
-          schemaToBeChanged = false;
-        }
         nextState();
         // fallthrough
       case FILE_COMMITTED:
@@ -530,10 +544,15 @@ public class TopicPartitionWriter {
     metastore.updateMetastore(tp.topic().toString());
   }
   private void commitFiles() {
+    boolean isPartitionChanged = false;
     currentStartOffset = minStartOffset();
     try {
       for (Map.Entry<String, String> entry : commitFiles.entrySet()) {
         String encodedPartition = entry.getKey();
+        if(!isPartitionChanged && !(encodedPartition.equalsIgnoreCase(globalCurrentEncodedPartition))) {
+            isPartitionChanged = true;
+            globalCurrentEncodedPartition = encodedPartition;
+        }
         commitFile(encodedPartition);
         if (isTaggingEnabled) {
           tagFile(encodedPartition, entry.getValue());
@@ -543,6 +562,15 @@ public class TopicPartitionWriter {
         recordCounts.remove(encodedPartition);
 
         log.debug("Committed {} for {}", entry.getValue(), tp);
+        if(isPartitionChanged) {
+            if(!metastore.isPartitionAvailable(tp.topic().toString(), globalCurrentEncodedPartition)) {
+                schemaToBeChanged = true;
+            }
+        }
+        if(schemaToBeChanged) {
+          updateMetastore();
+          schemaToBeChanged = false;
+        }
       }
     } catch (ConnectException e) {
       throw new RetriableException(e);
