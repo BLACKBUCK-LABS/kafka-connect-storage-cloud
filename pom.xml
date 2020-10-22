@@ -69,7 +69,7 @@
         <repository>
             <id>confluent</id>
             <name>Confluent</name>
-            <url>https://packages.confluent.io/maven</url>
+            <url>${confluent.maven.repo}</url>
         </repository>
     </repositories>
 
