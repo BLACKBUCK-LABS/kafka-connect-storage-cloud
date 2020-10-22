@@ -2,8 +2,9 @@
 [![FOSSA Status](https://app.fossa.io/api/projects/git%2Bhttps%3A%2F%2Fgithub.com%2Fconfluentinc%2Fkafka-connect-storage-cloud.svg?type=shield)](https://app.fossa.io/projects/git%2Bhttps%3A%2F%2Fgithub.com%2Fconfluentinc%2Fkafka-connect-storage-cloud?ref=badge_shield)
 
 
-### HOW TO BUILD JAR (For Blackbuck Use Case)
+### HOW TO BUILD & DEPLOY JAR (For Blackbuck Use Case)
 **mvn install -Dcheckstyle.skip -Dmaven.test.skip=true**
+**Copy jar to /opt/connect/java/kafka-connect-s3/kafka-connect-s3-5.5.1.jar**
 
 
 *kafka-connect-storage-cloud* is the repository for Confluent's [Kafka Connectors](http://kafka.apache.org/documentation.html#connect)
