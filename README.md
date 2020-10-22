@@ -4,7 +4,7 @@
 
 ### HOW TO BUILD & DEPLOY JAR (For Blackbuck Use Case)
 **mvn install -Dcheckstyle.skip -Dmaven.test.skip=true**
-**Copy jar to /opt/connect/java/kafka-connect-s3/kafka-connect-s3-5.5.1.jar**
+**SIT: Copy jar to /home/praveenkumar/confluent-5.5.1/share/java/kafka-connect-s3/kafka-connect-s3-5.5.1.jar**
 
 
 *kafka-connect-storage-cloud* is the repository for Confluent's [Kafka Connectors](http://kafka.apache.org/documentation.html#connect)

@@ -552,11 +552,7 @@ public class TopicPartitionWriter {
       log.error("Got exception while running crawler with name: {}, e = ", topicName, e);
       try {
         String[] parts = topicName.split("\\.");
-        StringBuilder sb = new StringBuilder();
-        for (int i = 0; i < parts.length - 1; i++) {
-          sb.append(parts[i]);
-        }
-        topicName = sb.toString();
+        topicName = parts[0] + "." + parts[1];
         metastore.updateMetastore(topicName);
       }
       catch (Exception ex) {
