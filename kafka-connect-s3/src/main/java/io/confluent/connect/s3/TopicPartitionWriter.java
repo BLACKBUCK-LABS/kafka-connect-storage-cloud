@@ -541,8 +541,30 @@ public class TopicPartitionWriter {
   }
 
   private void updateMetastore(){
-    metastore.updateMetastore(tp.topic().toString());
+    String topicName = tp.topic();
+    try {
+      // TRY TO TRIGGER CRAWLER AT TABLE LEVEL
+      metastore.updateMetastore(topicName);
+    }
+    catch (Exception e) {
+
+      // HANDLING TO TRIGGER CRAWLER AT DB LEVEL
+      log.error("Got exception while running crawler with name: {}, e = ", topicName, e);
+      try {
+        String[] parts = topicName.split("\\.");
+        StringBuilder sb = new StringBuilder();
+        for (int i = 0; i < parts.length - 1; i++) {
+          sb.append(parts[i]);
+        }
+        topicName = sb.toString();
+        metastore.updateMetastore(topicName);
+      }
+      catch (Exception ex) {
+        log.error("After catching, Got exception again while running crawler with name: {}, ex = ", topicName, ex);
+      }
+    }
   }
+  
   private void commitFiles() {
     boolean isPartitionChanged = false;
     currentStartOffset = minStartOffset();
@@ -562,7 +584,7 @@ public class TopicPartitionWriter {
         recordCounts.remove(encodedPartition);
 
         log.debug("Committed {} for {}", entry.getValue(), tp);
-        if(isPartitionChanged) {
+        if(!schemaToBeChanged && isPartitionChanged) {
             if(!metastore.isPartitionAvailable(tp.topic().toString(), globalCurrentEncodedPartition)) {
                 schemaToBeChanged = true;
             }
