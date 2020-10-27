@@ -550,8 +550,6 @@ public class TopicPartitionWriter {
     }
     catch (Exception e) {
 
-      log.error("Got exception while running crawler with name: {}, e = ", topicName, e);
-
       if(e instanceof EntityNotFoundException) {
 
         // HANDLING TO TRIGGER CRAWLER AT DB LEVEL
@@ -561,8 +559,12 @@ public class TopicPartitionWriter {
           metastore.updateMetastore(topicName);
         }
         catch (Exception ex) {
+          log.error("Got first exception while running crawler with name: {}, e = ", topicName, e);
           log.error("After catching, Got exception again while running crawler with name: {}, ex = ", topicName, ex);
         }
+      }
+      else {
+        log.error("Got exception while running crawler with name: {}, e = ", topicName, e);
       }
     }
   }

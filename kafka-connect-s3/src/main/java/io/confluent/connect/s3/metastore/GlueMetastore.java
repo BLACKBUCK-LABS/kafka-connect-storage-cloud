@@ -36,16 +36,16 @@ public class GlueMetastore implements IMetastore {
 
     @Override
     public boolean isPartitionAvailable(String topicName, String encodedPartition) {
-        String dbName = topicName.split(topicNameDelim)[0];
-        String tableName = topicName.replaceAll(topicNameDelim, "_");
+        String glueDbName = topicName.split(topicNameDelim)[0];
+        String glueTableName = topicName.replaceAll(topicNameDelim, "_");
 
         String[] partitions = encodedPartition.split(partitionDelim);
         List<String> partitionValues = new ArrayList<>();
         for (String partition : partitions) {
             partitionValues.add(partition.split(partitonKeyValueDelim)[1]);
         }
-        GetPartitionRequest getPartitionRequest = new GetPartitionRequest().withDatabaseName(dbName)
-                .withTableName(tableName).withPartitionValues(partitionValues);
+        GetPartitionRequest getPartitionRequest = new GetPartitionRequest().withDatabaseName(glueDbName)
+                .withTableName(glueTableName).withPartitionValues(partitionValues);
         try {
             awsGlue.getPartition(getPartitionRequest);
             return true;
