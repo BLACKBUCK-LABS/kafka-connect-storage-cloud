@@ -15,9 +15,13 @@
 
 package io.confluent.connect.s3;
 
-import com.amazonaws.SdkClientException;
-import io.confluent.connect.s3.metastore.IMetastore;
-import io.confluent.connect.s3.storage.S3Storage;
+import java.util.Comparator;
+import java.util.HashMap;
+import java.util.LinkedList;
+import java.util.Map;
+import java.util.Optional;
+import java.util.Queue;
+
 import org.apache.kafka.common.TopicPartition;
 import org.apache.kafka.connect.data.Schema;
 import org.apache.kafka.connect.errors.ConnectException;
@@ -31,15 +35,13 @@ import org.joda.time.DateTimeZone;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import java.util.Comparator;
-import java.util.HashMap;
-import java.util.LinkedList;
-import java.util.Map;
-import java.util.Optional;
-import java.util.Queue;
+import com.amazonaws.SdkClientException;
+import com.amazonaws.services.glue.model.EntityNotFoundException;
 
 import io.confluent.common.utils.SystemTime;
 import io.confluent.common.utils.Time;
+import io.confluent.connect.s3.metastore.IMetastore;
+import io.confluent.connect.s3.storage.S3Storage;
 import io.confluent.connect.storage.StorageSinkConnectorConfig;
 import io.confluent.connect.storage.common.StorageCommonConfig;
 import io.confluent.connect.storage.common.util.StringUtils;
@@ -541,8 +543,32 @@ public class TopicPartitionWriter {
   }
 
   private void updateMetastore(){
-    metastore.updateMetastore(tp.topic().toString());
+    String topicName = tp.topic();
+    try {
+      // TRY TO TRIGGER CRAWLER AT TABLE LEVEL
+      metastore.updateMetastore(topicName);
+    }
+    catch (Exception e) {
+
+      if(e instanceof EntityNotFoundException) {
+
+        // HANDLING TO TRIGGER CRAWLER AT DB LEVEL
+        try {
+          String[] parts = topicName.split("\\.");
+          topicName = parts[0] + "." + parts[1];
+          metastore.updateMetastore(topicName);
+        }
+        catch (Exception ex) {
+          log.error("Got first exception while running crawler with name: {}, e = ", topicName, e);
+          log.error("After catching, Got exception again while running crawler with name: {}, ex = ", topicName, ex);
+        }
+      }
+      else {
+        log.error("Got exception while running crawler with name: {}, e = ", topicName, e);
+      }
+    }
   }
+  
   private void commitFiles() {
     boolean isPartitionChanged = false;
     currentStartOffset = minStartOffset();
@@ -562,7 +588,7 @@ public class TopicPartitionWriter {
         recordCounts.remove(encodedPartition);
 
         log.debug("Committed {} for {}", entry.getValue(), tp);
-        if(isPartitionChanged) {
+        if(!schemaToBeChanged && isPartitionChanged) {
             if(!metastore.isPartitionAvailable(tp.topic().toString(), globalCurrentEncodedPartition)) {
                 schemaToBeChanged = true;
             }
