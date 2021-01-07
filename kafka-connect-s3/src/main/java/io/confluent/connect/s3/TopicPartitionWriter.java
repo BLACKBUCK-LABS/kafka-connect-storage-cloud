@@ -15,8 +15,13 @@
 
 package io.confluent.connect.s3;
 
-import com.amazonaws.SdkClientException;
-import io.confluent.connect.s3.storage.S3Storage;
+import java.util.Comparator;
+import java.util.HashMap;
+import java.util.LinkedList;
+import java.util.Map;
+import java.util.Optional;
+import java.util.Queue;
+
 import org.apache.kafka.common.TopicPartition;
 import org.apache.kafka.connect.data.Schema;
 import org.apache.kafka.connect.errors.ConnectException;
@@ -30,15 +35,13 @@ import org.joda.time.DateTimeZone;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import java.util.Comparator;
-import java.util.HashMap;
-import java.util.LinkedList;
-import java.util.Map;
-import java.util.Optional;
-import java.util.Queue;
+import com.amazonaws.SdkClientException;
+import com.amazonaws.services.glue.model.EntityNotFoundException;
 
 import io.confluent.common.utils.SystemTime;
 import io.confluent.common.utils.Time;
+import io.confluent.connect.s3.metastore.IMetastore;
+import io.confluent.connect.s3.storage.S3Storage;
 import io.confluent.connect.storage.StorageSinkConnectorConfig;
 import io.confluent.connect.storage.common.StorageCommonConfig;
 import io.confluent.connect.storage.common.util.StringUtils;
@@ -57,8 +60,10 @@ public class TopicPartitionWriter {
   private final Map<String, String> commitFiles;
   private final Map<String, RecordWriter> writers;
   private final Map<String, Schema> currentSchemas;
+  private Schema globalCurrentSchema;
   private final TopicPartition tp;
   private final S3Storage storage;
+  private final IMetastore metastore;
   private final Partitioner<?> partitioner;
   private final TimestampExtractor timestampExtractor;
   private String topicsDir;
@@ -75,6 +80,7 @@ public class TopicPartitionWriter {
   private Long currentStartOffset;
   private Long currentTimestamp;
   private String currentEncodedPartition;
+  private String globalCurrentEncodedPartition;
   private Long baseRecordTimestamp;
   private Long offsetToCommit;
   private final RecordWriterProvider<S3SinkConnectorConfig> writerProvider;
@@ -92,6 +98,23 @@ public class TopicPartitionWriter {
   private DateTimeZone timeZone;
   private final S3SinkConnectorConfig connectorConfig;
   private static final Time SYSTEM_TIME = new SystemTime();
+  private  boolean schemaToBeChanged = false;
+
+
+  public void setGlobalCurrentSchema(Schema globalCurrentSchema) {
+    this.globalCurrentSchema = globalCurrentSchema;
+  }
+  public Schema getGlobalCurrentSchema() {
+    return globalCurrentSchema;
+  }
+
+  public void setGlobalCurrentEncodedPartition(String globalCurrentEncodedPartition) {
+    this.globalCurrentEncodedPartition = globalCurrentEncodedPartition;
+  }
+  public String getCurrentEncodedPartition() {
+    return currentEncodedPartition;
+  }
+
 
   public TopicPartitionWriter(TopicPartition tp,
                               S3Storage storage,
@@ -99,7 +122,7 @@ public class TopicPartitionWriter {
                               Partitioner<?> partitioner,
                               S3SinkConnectorConfig connectorConfig,
                               SinkTaskContext context) {
-    this(tp, storage, writerProvider, partitioner, connectorConfig, context, SYSTEM_TIME);
+    this(tp, storage, writerProvider, partitioner, connectorConfig, context, SYSTEM_TIME, null);
   }
 
   // Visible for testing
@@ -109,11 +132,13 @@ public class TopicPartitionWriter {
                        Partitioner<?> partitioner,
                        S3SinkConnectorConfig connectorConfig,
                        SinkTaskContext context,
-                       Time time) {
+                       Time time,
+                      IMetastore metastore ) {
     this.connectorConfig = connectorConfig;
     this.time = time;
     this.tp = tp;
     this.storage = storage;
+    this.metastore = metastore;
     this.context = context;
     this.writerProvider = writerProvider;
     this.partitioner = partitioner;
@@ -209,6 +234,7 @@ public class TopicPartitionWriter {
             baseRecordTimestamp = currentTimestamp;
           }
         }
+
         Schema valueSchema = record.valueSchema();
         String encodedPartition = partitioner.encodePartition(record, now);
         Schema currentValueSchema = currentSchemas.get(encodedPartition);
@@ -216,7 +242,15 @@ public class TopicPartitionWriter {
           currentSchemas.put(encodedPartition, valueSchema);
           currentValueSchema = valueSchema;
         }
+        if(!schemaToBeChanged) {
+            if (globalCurrentSchema == null ||
+                    (compatibility.
+                            shouldChangeSchema(record, null, globalCurrentSchema))) {
+                globalCurrentSchema = record.valueSchema();
+                schemaToBeChanged = true;
+            }
 
+        }
         if (!checkRotationOrAppend(
             record,
             currentValueSchema,
@@ -226,6 +260,7 @@ public class TopicPartitionWriter {
         )) {
           break;
         }
+
         // fallthrough
       case SHOULD_ROTATE:
         commitFiles();
@@ -260,6 +295,7 @@ public class TopicPartitionWriter {
           encodedPartition,
           currentOffset
       );
+
       currentSchemas.put(encodedPartition, valueSchema);
       nextState();
     } else if (rotateOnTime(encodedPartition, currentTimestamp, now)) {
@@ -506,11 +542,43 @@ public class TopicPartitionWriter {
     endOffsets.put(currentEncodedPartition, currentOffset);
   }
 
+  private void updateMetastore(){
+    String topicName = tp.topic();
+    try {
+      // TRY TO TRIGGER CRAWLER AT TABLE LEVEL
+      metastore.updateMetastore(topicName);
+    }
+    catch (Exception e) {
+
+      if(e instanceof EntityNotFoundException) {
+
+        // HANDLING TO TRIGGER CRAWLER AT DB LEVEL
+        try {
+          String[] parts = topicName.split("\\.");
+          topicName = parts[0] + "." + parts[1];
+          metastore.updateMetastore(topicName);
+        }
+        catch (Exception ex) {
+          log.error("Got first exception while running crawler with name: {}, e = ", topicName, e);
+          log.error("After catching, Got exception again while running crawler with name: {}, ex = ", topicName, ex);
+        }
+      }
+      else {
+        log.error("Got exception while running crawler with name: {}, e = ", topicName, e);
+      }
+    }
+  }
+  
   private void commitFiles() {
+    boolean isPartitionChanged = false;
     currentStartOffset = minStartOffset();
     try {
       for (Map.Entry<String, String> entry : commitFiles.entrySet()) {
         String encodedPartition = entry.getKey();
+        if(!isPartitionChanged && !(encodedPartition.equalsIgnoreCase(globalCurrentEncodedPartition))) {
+            isPartitionChanged = true;
+            globalCurrentEncodedPartition = encodedPartition;
+        }
         commitFile(encodedPartition);
         if (isTaggingEnabled) {
           tagFile(encodedPartition, entry.getValue());
@@ -518,7 +586,17 @@ public class TopicPartitionWriter {
         startOffsets.remove(encodedPartition);
         endOffsets.remove(encodedPartition);
         recordCounts.remove(encodedPartition);
+
         log.debug("Committed {} for {}", entry.getValue(), tp);
+        if(!schemaToBeChanged && isPartitionChanged) {
+            if(!metastore.isPartitionAvailable(tp.topic().toString(), globalCurrentEncodedPartition)) {
+                schemaToBeChanged = true;
+            }
+        }
+        if(schemaToBeChanged) {
+          updateMetastore();
+          schemaToBeChanged = false;
+        }
       }
     } catch (ConnectException e) {
       throw new RetriableException(e);

@@ -25,6 +25,7 @@ import com.amazonaws.regions.Regions;
 import com.amazonaws.retry.PredefinedBackoffStrategies;
 import com.amazonaws.retry.PredefinedRetryPolicies;
 import com.amazonaws.retry.RetryPolicy;
+import com.amazonaws.services.glue.AWSGlueClient;
 import com.amazonaws.services.s3.AmazonS3;
 import com.amazonaws.services.s3.AmazonS3ClientBuilder;
 import com.amazonaws.services.s3.model.ObjectListing;
@@ -68,6 +69,7 @@ public class S3Storage implements Storage<S3SinkConnectorConfig, ObjectListing> 
   private final S3SinkConnectorConfig conf;
   private static final String VERSION_FORMAT = "APN/1.0 Confluent/1.0 KafkaS3Connector/%s";
 
+
   /**
    * Construct an S3 storage class given a configuration and an AWS S3 address.
    *
@@ -79,6 +81,8 @@ public class S3Storage implements Storage<S3SinkConnectorConfig, ObjectListing> 
     this.conf = conf;
     this.bucketName = conf.getBucketName();
     this.s3 = newS3Client(conf);
+
+
   }
 
   /**

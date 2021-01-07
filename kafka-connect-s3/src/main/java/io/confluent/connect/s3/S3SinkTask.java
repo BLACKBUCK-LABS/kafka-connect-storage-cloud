@@ -17,8 +17,12 @@ package io.confluent.connect.s3;
 
 import com.amazonaws.AmazonClientException;
 import io.confluent.connect.s3.S3SinkConnectorConfig.BehaviorOnNullValues;
+import io.confluent.connect.s3.metastore.GlueMetastore;
+import io.confluent.connect.s3.metastore.IMetastore;
+import javafx.util.Pair;
 import org.apache.kafka.clients.consumer.OffsetAndMetadata;
 import org.apache.kafka.common.TopicPartition;
+import org.apache.kafka.connect.data.Schema;
 import org.apache.kafka.connect.errors.ConnectException;
 import org.apache.kafka.connect.errors.DataException;
 import org.apache.kafka.connect.errors.RetriableException;
@@ -51,7 +55,9 @@ public class S3SinkTask extends SinkTask {
   private String url;
   private long timeoutMs;
   private S3Storage storage;
+  private IMetastore metastore;
   private final Map<TopicPartition, TopicPartitionWriter> topicPartitionWriters;
+  private final Map<TopicPartition, Pair<String, Schema>> oldTopicLastPartitionSchema;
   private Partitioner<?> partitioner;
   private Format<S3SinkConnectorConfig, String> format;
   private RecordWriterProvider<S3SinkConnectorConfig> writerProvider;
@@ -63,6 +69,7 @@ public class S3SinkTask extends SinkTask {
   public S3SinkTask() {
     // no-arg constructor required by Connect framework.
     topicPartitionWriters = new HashMap<>();
+    oldTopicLastPartitionSchema = new HashMap<>();
     time = new SystemTime();
   }
 
@@ -77,7 +84,7 @@ public class S3SinkTask extends SinkTask {
     this.partitioner = partitioner;
     this.format = format;
     this.time = time;
-
+    this.oldTopicLastPartitionSchema = new HashMap<>();
     url = connectorConfig.getString(StorageCommonConfig.STORE_URL_CONFIG);
     writerProvider = this.format.getRecordWriterProvider();
 
@@ -103,6 +110,7 @@ public class S3SinkTask extends SinkTask {
           connectorConfig,
           url
       );
+      metastore = new GlueMetastore(connectorConfig);
       if (!storage.bucketExists()) {
         throw new DataException("No-existent S3 bucket: " + connectorConfig.getBucketName());
       }
@@ -130,7 +138,14 @@ public class S3SinkTask extends SinkTask {
   @Override
   public void open(Collection<TopicPartition> partitions) {
     for (TopicPartition tp : partitions) {
-      topicPartitionWriters.put(tp, newTopicPartitionWriter(tp));
+
+      TopicPartitionWriter tpw = newTopicPartitionWriter(tp);
+      Pair<String, Schema> oldSchemaPartition = oldTopicLastPartitionSchema.get(tp);
+      if(oldSchemaPartition != null) {
+        tpw.setGlobalCurrentSchema(oldSchemaPartition.getValue());
+        tpw.setGlobalCurrentEncodedPartition(oldSchemaPartition.getKey());
+      }
+      topicPartitionWriters.put(tp, tpw);
     }
   }
 
@@ -246,7 +261,11 @@ public class S3SinkTask extends SinkTask {
   public void close(Collection<TopicPartition> partitions) {
     for (TopicPartition tp : topicPartitionWriters.keySet()) {
       try {
-        topicPartitionWriters.get(tp).close();
+        TopicPartitionWriter tpw = topicPartitionWriters.get(tp);
+        oldTopicLastPartitionSchema.put(tp,
+                new Pair<>(tpw.getCurrentEncodedPartition(), tpw.getGlobalCurrentSchema()));
+        tpw.close();
+
       } catch (ConnectException e) {
         log.error("Error closing writer for {}. Error: {}", tp, e.getMessage());
       }
@@ -278,7 +297,8 @@ public class S3SinkTask extends SinkTask {
         partitioner,
         connectorConfig,
         context,
-        time
+        time,
+            metastore
     );
   }
 

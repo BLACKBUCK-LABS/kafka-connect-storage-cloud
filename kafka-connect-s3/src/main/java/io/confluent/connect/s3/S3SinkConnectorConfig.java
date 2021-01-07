@@ -602,6 +602,10 @@ public class S3SinkConnectorConfig extends StorageSinkConnectorConfig {
   public String getBucketName() {
     return getString(S3_BUCKET_CONFIG);
   }
+  public String getRegionConfig() {
+    return getString(REGION_CONFIG);
+  }
+
 
   public String getSsea() {
     return getString(SSEA_CONFIG);
