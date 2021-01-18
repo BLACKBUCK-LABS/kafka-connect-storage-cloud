@@ -248,6 +248,7 @@ public class TopicPartitionWriter {
                             shouldChangeSchema(record, null, globalCurrentSchema))) {
                 globalCurrentSchema = record.valueSchema();
                 schemaToBeChanged = true;
+                log.info("schemaToBeChanged=true reason=schema changed");
             }
 
         }
@@ -578,6 +579,7 @@ public class TopicPartitionWriter {
         if(!isPartitionChanged && !(encodedPartition.equalsIgnoreCase(globalCurrentEncodedPartition))) {
             isPartitionChanged = true;
             globalCurrentEncodedPartition = encodedPartition;
+            log.info("isPartitionChanged = true, reason = encoded partition " + encodedPartition  + " does not match globalPartition " + globalCurrentEncodedPartition);
         }
         commitFile(encodedPartition);
         if (isTaggingEnabled) {
@@ -591,6 +593,7 @@ public class TopicPartitionWriter {
         if(!schemaToBeChanged && isPartitionChanged) {
             if(!metastore.isPartitionAvailable(tp.topic().toString(), globalCurrentEncodedPartition)) {
                 schemaToBeChanged = true;
+              log.info("schemaToBeChanged = true, reason = parition is not available " + globalCurrentEncodedPartition);
             }
         }
         if(schemaToBeChanged) {

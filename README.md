@@ -3,6 +3,7 @@
 
 
 ### HOW TO BUILD & DEPLOY JAR (For Blackbuck Use Case)
+** DONT USE MASTER ------ Go to branch crawler_trigger **
 **mvn install -Dcheckstyle.skip -Dmaven.test.skip=true**
 **SIT: Copy jar to /home/praveenkumar/confluent-5.5.1/share/java/kafka-connect-s3/kafka-connect-s3-5.5.1.jar**
 
