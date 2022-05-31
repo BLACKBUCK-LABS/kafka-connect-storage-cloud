@@ -22,6 +22,7 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.Queue;
 
+import io.confluent.connect.storage.errors.PartitionException;
 import org.apache.kafka.common.TopicPartition;
 import org.apache.kafka.connect.data.Schema;
 import org.apache.kafka.connect.errors.ConnectException;
@@ -236,8 +237,16 @@ public class TopicPartitionWriter {
         }
 
         Schema valueSchema = record.valueSchema();
-        String encodedPartition = partitioner.encodePartition(record, now);
-        Schema currentValueSchema = currentSchemas.get(encodedPartition);
+        String encodedPartition;
+        Schema currentValueSchema;
+
+        try{
+          encodedPartition = partitioner.encodePartition(record, now);
+          currentValueSchema = currentSchemas.get(encodedPartition);
+        }catch (PartitionException e){
+          log.error("Got Partition exception while running crawler with name: {}, e = ", record.topic(), e);
+        }
+
         if (currentValueSchema == null) {
           currentSchemas.put(encodedPartition, valueSchema);
           currentValueSchema = valueSchema;
@@ -578,8 +587,8 @@ public class TopicPartitionWriter {
         String encodedPartition = entry.getKey();
         if(!isPartitionChanged && !(encodedPartition.equalsIgnoreCase(globalCurrentEncodedPartition))) {
             isPartitionChanged = true;
-            globalCurrentEncodedPartition = encodedPartition;
             log.info("isPartitionChanged = true, reason = encoded partition " + encodedPartition  + " does not match globalPartition " + globalCurrentEncodedPartition);
+            globalCurrentEncodedPartition = encodedPartition;
         }
         commitFile(encodedPartition);
         if (isTaggingEnabled) {
