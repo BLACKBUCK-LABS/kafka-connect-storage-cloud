@@ -99,6 +99,7 @@ public class TopicPartitionWriter {
   private final S3SinkConnectorConfig connectorConfig;
   private static final Time SYSTEM_TIME = new SystemTime();
   private  boolean schemaToBeChanged = false;
+  private SinkRecord sinkRecordForSchemaChange;
 
 
   public void setGlobalCurrentSchema(Schema globalCurrentSchema) {
@@ -248,6 +249,7 @@ public class TopicPartitionWriter {
                             shouldChangeSchema(record, null, globalCurrentSchema))) {
                 globalCurrentSchema = record.valueSchema();
                 schemaToBeChanged = true;
+                sinkRecordForSchemaChange=record;
                 log.info("schemaToBeChanged=true reason=schema changed");
             }
 
@@ -547,7 +549,7 @@ public class TopicPartitionWriter {
     String topicName = tp.topic();
     try {
       // TRY TO TRIGGER CRAWLER AT TABLE LEVEL
-      metastore.updateMetastore(topicName);
+      metastore.updateMetastore(topicName, sinkRecordForSchemaChange);
     }
     catch (Exception e) {
 
@@ -557,7 +559,7 @@ public class TopicPartitionWriter {
         try {
           String[] parts = topicName.split("\\.");
           topicName = parts[0] + "." + parts[1];
-          metastore.updateMetastore(topicName);
+          metastore.updateMetastore(topicName, sinkRecordForSchemaChange);
         }
         catch (Exception ex) {
           log.error("Got first exception while running crawler with name: {}, e = ", topicName, e);
