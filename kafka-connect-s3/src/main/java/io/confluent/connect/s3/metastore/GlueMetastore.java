@@ -65,7 +65,6 @@ public class GlueMetastore implements IMetastore {
     }
 
     private Boolean checkIfUpdateRequired(Table table, TableInput tableInput) {
-        log.info("Table {}", table);
         if (tableInput.getStorageDescriptor().getColumns().size() != table.getStorageDescriptor().getColumns().size()
                 || tableInput.getPartitionKeys().size() != table.getPartitionKeys().size()) {
             return true;
@@ -85,7 +84,7 @@ public class GlueMetastore implements IMetastore {
         }
         for (Column column : tableInput.getPartitionKeys()) {
             Column existingPartitionKey = partitionKeyMap.getOrDefault(column.getName(), null);
-            if (existingPartitionKey == null || existingPartitionKey.getType().equals(column.getType())) {
+            if (existingPartitionKey == null || !existingPartitionKey.getType().equals(column.getType())) {
                 return true;
             }
         }
