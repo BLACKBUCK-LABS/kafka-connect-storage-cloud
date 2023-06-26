@@ -55,7 +55,7 @@ public class GlueMetastore implements IMetastore {
             if(checkIfUpdateRequired(table, tableInput)){
                 log.info("Table exists, updating table {}", tableName);
                 awsGlue.updateTable(new UpdateTableRequest().withDatabaseName(databaseName)
-                        .withTableInput(tableInput);
+                        .withTableInput(tableInput));
             }
 
         } else {
