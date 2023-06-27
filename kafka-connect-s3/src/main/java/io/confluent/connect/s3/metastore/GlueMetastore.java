@@ -41,9 +41,9 @@ public class GlueMetastore implements IMetastore {
     @Override
     public void updateMetastoreThroughGlueSdk(String name, SinkRecord sinkRecord, String s3Path, String partition){
         String[] parts = name.split("\\.");
-        List<Column>partitionKeys= getPartitionKeysUsingPartition(partition);
         String databaseName=parts[0];
         String tableName = name.replace(".", "_");
+        List<Column>partitionKeys= getPartitionKeysUsingPartition(partition);
         List<Column> columns = getListOfColumns(sinkRecord);
         StorageDescriptor storageDescriptor = getDefaultStorageDescriptor();
         storageDescriptor.setColumns(columns);
@@ -64,6 +64,94 @@ public class GlueMetastore implements IMetastore {
         }
     }
 
+
+
+    @Override
+    public boolean isPartitionAvailable(String topicName, String encodedPartition) {
+        String glueDbName = topicName.split(topicNameDelim)[0];
+        String glueTableName = topicName.replaceAll(topicNameDelim, "_");
+
+        String[] partitions = encodedPartition.split(partitionDelim);
+        List<String> partitionValues = new ArrayList<>();
+        for (String partition : partitions) {
+            partitionValues.add(partition.split(partitonKeyValueDelim)[1]);
+        }
+        GetPartitionRequest getPartitionRequest = new GetPartitionRequest().withDatabaseName(glueDbName)
+                .withTableName(glueTableName).withPartitionValues(partitionValues);
+        try {
+            awsGlue.getPartition(getPartitionRequest);
+            return true;
+        } catch (AWSGlueException e) {
+            log.info("error while fetching partition , e = ", e);
+        }
+        return false;
+    }
+
+    @Override
+    public void createPartition(String name, String s3Path, String partition){
+        String[] parts = name.split(topicNameDelim);
+        String tableName = name.replace(".", "_");
+        String databaseName=parts[0];
+        CreatePartitionRequest createPartitionRequest= new CreatePartitionRequest();
+        StorageDescriptor storageDescriptor= getDefaultStorageDescriptor();
+        log.info("Creating partition bucket {}", buildS3Paths(s3Path, name)+partition+"/");
+        storageDescriptor.setLocation(buildS3Paths(s3Path, name)+partition+"/");
+        createPartitionRequest.setDatabaseName(databaseName);
+        createPartitionRequest.setTableName(tableName);
+        createPartitionRequest.setPartitionInput(
+                new PartitionInput().withValues(getPartitionValuesUsingPartition(partition))
+                        .withStorageDescriptor(storageDescriptor));
+        awsGlue.createPartition(createPartitionRequest);
+    }
+
+    @Override
+    public void deleteExcessGlueTableVersions(String name) {
+        String[] parts = name.split("\\.");
+        String databaseName=parts[0];
+        String tableName = name.replace(".", "_");
+        GetTableVersionsResult getTableVersionsResult= getGlueTableVersions(databaseName, tableName, null, 20000);
+        if(getTableVersionsResult!=null&&getTableVersionsResult.getNextToken()!=null){
+            log.info("Get table version size {}", getTableVersionsResult.getTableVersions().size());
+            String nextToken=getTableVersionsResult.getNextToken();
+            while(nextToken!=null){
+                nextToken= getAndDeleteGlueTables(databaseName, tableName, nextToken, 10000);
+            }
+        }
+
+    }
+
+    public String getAndDeleteGlueTables(String databaseName,String tableName, String tokenName, Integer maxResults){
+        GetTableVersionsResult tableVersionResult= getGlueTableVersions(databaseName, tableName, tokenName,maxResults);
+        if(tableVersionResult!=null&&tableVersionResult.getTableVersions()!=null){
+            log.info("Get table version size {}", tableVersionResult.getTableVersions().size());
+            List<String> versionIds = tableVersionResult.getTableVersions().stream().map(TableVersion::getVersionId)
+                    .collect(Collectors.toList());
+            deleteGlueTableVersions(databaseName,tableName,versionIds);
+            return tableVersionResult.getNextToken();
+        }
+        return null;
+    }
+    public GetTableVersionsResult getGlueTableVersions(String databaseName, String tableName, String nextToken, Integer maxResults){
+        try{
+            return awsGlue.getTableVersions(
+                    new GetTableVersionsRequest().withDatabaseName(databaseName).withTableName(tableName)
+                            .withMaxResults(maxResults).withNextToken(nextToken));
+
+        }catch (Exception e){
+            log.error("Table version delete flow: Exception while getting table versions e= ", e);
+            return null;
+        }
+    }
+
+    public void deleteGlueTableVersions(String databaseName, String tableName, List<String> versionIds){
+        try {
+            awsGlue.batchDeleteTableVersion(
+                    new BatchDeleteTableVersionRequest().withDatabaseName(databaseName).withTableName(tableName).withVersionIds(versionIds));
+        } catch (Exception e){
+            log.error("Table version delete flow: Exception while deleting table versions e= ", e);
+        }
+
+    }
     private Boolean checkIfUpdateRequired(Table table, TableInput tableInput) {
         if (tableInput.getStorageDescriptor().getColumns().size() != table.getStorageDescriptor().getColumns().size()
                 || tableInput.getPartitionKeys().size() != table.getPartitionKeys().size()) {
@@ -147,43 +235,6 @@ public class GlueMetastore implements IMetastore {
         return null;
     }
 
-    @Override
-    public boolean isPartitionAvailable(String topicName, String encodedPartition) {
-        String glueDbName = topicName.split(topicNameDelim)[0];
-        String glueTableName = topicName.replaceAll(topicNameDelim, "_");
-
-        String[] partitions = encodedPartition.split(partitionDelim);
-        List<String> partitionValues = new ArrayList<>();
-        for (String partition : partitions) {
-            partitionValues.add(partition.split(partitonKeyValueDelim)[1]);
-        }
-        GetPartitionRequest getPartitionRequest = new GetPartitionRequest().withDatabaseName(glueDbName)
-                .withTableName(glueTableName).withPartitionValues(partitionValues);
-        try {
-            awsGlue.getPartition(getPartitionRequest);
-            return true;
-        } catch (AWSGlueException e) {
-            log.info("error while fetching partition , e = ", e);
-        }
-        return false;
-    }
-
-    public void createPartition(String name, String s3Path, String partition){
-        String[] parts = name.split(topicNameDelim);
-        String tableName = name.replace(".", "_");
-        String databaseName=parts[0];
-        CreatePartitionRequest createPartitionRequest= new CreatePartitionRequest();
-        StorageDescriptor storageDescriptor= getDefaultStorageDescriptor();
-        log.info("Creating partition bucket {}", buildS3Paths(s3Path, name)+partition+"/");
-        storageDescriptor.setLocation(buildS3Paths(s3Path, name)+partition+"/");
-        createPartitionRequest.setDatabaseName(databaseName);
-        createPartitionRequest.setTableName(tableName);
-        createPartitionRequest.setPartitionInput(
-                new PartitionInput().withValues(getPartitionValuesUsingPartition(partition))
-                        .withStorageDescriptor(storageDescriptor));
-        awsGlue.createPartition(createPartitionRequest);
-    }
-
     public StorageDescriptor getDefaultStorageDescriptor(){
         StorageDescriptor storageDescriptor = new StorageDescriptor();
         HashMap<String, String> parameters = new HashMap<>();
@@ -195,4 +246,5 @@ public class GlueMetastore implements IMetastore {
         storageDescriptor.setOutputFormat("org.apache.hadoop.hive.ql.io.parquet.MapredParquetInputFormat");
         return storageDescriptor;
     }
+
 }

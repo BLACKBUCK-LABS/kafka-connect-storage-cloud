@@ -15,15 +15,11 @@
 
 package io.confluent.connect.s3;
 
+import java.util.*;
 import java.util.Comparator;
-import java.util.HashMap;
-import java.util.LinkedList;
-import java.util.Map;
-import java.util.Optional;
-import java.util.Queue;
+import java.util.stream.Collectors;
 
-import com.amazonaws.services.glue.model.AWSGlueException;
-import com.amazonaws.services.glue.model.AlreadyExistsException;
+import com.amazonaws.services.glue.model.*;
 import org.apache.kafka.common.TopicPartition;
 import org.apache.kafka.connect.data.Schema;
 import org.apache.kafka.connect.errors.ConnectException;
@@ -38,7 +34,6 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import com.amazonaws.SdkClientException;
-import com.amazonaws.services.glue.model.EntityNotFoundException;
 
 import io.confluent.common.utils.SystemTime;
 import io.confluent.common.utils.Time;
@@ -626,7 +621,12 @@ public class TopicPartitionWriter {
           createGlueTablePartition();
         }
       }
-    }  catch (AWSGlueException e){
+    } catch (ResourceNumberLimitExceededException e) {
+      if (e.getMessage().contains("TABLE_VERSION")) {
+        log.info("Table versions exceeded, starting deleting old versions");
+        metastore.deleteExcessGlueTableVersions(tp.topic());
+      }
+    } catch (AWSGlueException e) {
       log.info("Exception while updating through glue api {}, e= ", tp.topic(), e);
       //Running glue crawler on glue api failure
       updateMetastore();
@@ -641,6 +641,7 @@ public class TopicPartitionWriter {
     baseRecordTimestamp = null;
     log.info("Files committed to S3. Target commit offset for {} is {}", tp, offsetToCommit);
   }
+
 
   private void commitFile(String encodedPartition) {
     if (!startOffsets.containsKey(encodedPartition)) {
