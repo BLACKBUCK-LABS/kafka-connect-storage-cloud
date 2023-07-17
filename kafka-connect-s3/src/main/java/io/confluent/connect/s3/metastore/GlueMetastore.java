@@ -209,13 +209,14 @@ public class GlueMetastore implements IMetastore {
     }
     private List<Column> getListOfColumns(SinkRecord sinkRecord) {
         List<Column> columns= new ArrayList<>();
+//        log.info("Sink record schema {}", sinkRecord.valueSchema().fields());
         for (Field field: sinkRecord.valueSchema().fields()){
-            log.info("schema values {}", field);
             Column column= new Column();
             column.setName(field.name());
-            column.setType(GlueDataType.getDataType(field.schema().type()));
+            column.setType(GlueDataType.getDataType(field.schema()));
             columns.add(column);
         }
+//        log.info("New schema {}", columns);
         return columns;
     }
 
