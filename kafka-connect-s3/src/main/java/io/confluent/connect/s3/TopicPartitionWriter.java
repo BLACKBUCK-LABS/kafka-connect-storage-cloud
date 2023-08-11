@@ -15,13 +15,11 @@
 
 package io.confluent.connect.s3;
 
+import java.util.*;
 import java.util.Comparator;
-import java.util.HashMap;
-import java.util.LinkedList;
-import java.util.Map;
-import java.util.Optional;
-import java.util.Queue;
+import java.util.stream.Collectors;
 
+import com.amazonaws.services.glue.model.*;
 import org.apache.kafka.common.TopicPartition;
 import org.apache.kafka.connect.data.Schema;
 import org.apache.kafka.connect.errors.ConnectException;
@@ -36,7 +34,6 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import com.amazonaws.SdkClientException;
-import com.amazonaws.services.glue.model.EntityNotFoundException;
 
 import io.confluent.common.utils.SystemTime;
 import io.confluent.common.utils.Time;
@@ -99,6 +96,7 @@ public class TopicPartitionWriter {
   private final S3SinkConnectorConfig connectorConfig;
   private static final Time SYSTEM_TIME = new SystemTime();
   private  boolean schemaToBeChanged = false;
+  private SinkRecord sinkRecordForSchemaChange;
 
 
   public void setGlobalCurrentSchema(Schema globalCurrentSchema) {
@@ -248,6 +246,7 @@ public class TopicPartitionWriter {
                             shouldChangeSchema(record, null, globalCurrentSchema))) {
                 globalCurrentSchema = record.valueSchema();
                 schemaToBeChanged = true;
+                sinkRecordForSchemaChange=record;
                 log.info("schemaToBeChanged=true reason=schema changed");
             }
 
@@ -547,7 +546,7 @@ public class TopicPartitionWriter {
     String topicName = tp.topic();
     try {
       // TRY TO TRIGGER CRAWLER AT TABLE LEVEL
-      metastore.updateMetastore(topicName);
+      metastore.updateMetastoreThroughCrawler(topicName);
     }
     catch (Exception e) {
 
@@ -557,7 +556,7 @@ public class TopicPartitionWriter {
         try {
           String[] parts = topicName.split("\\.");
           topicName = parts[0] + "." + parts[1];
-          metastore.updateMetastore(topicName);
+          metastore.updateMetastoreThroughCrawler(topicName);
         }
         catch (Exception ex) {
           log.error("Got first exception while running crawler with name: {}, e = ", topicName, e);
@@ -569,17 +568,39 @@ public class TopicPartitionWriter {
       }
     }
   }
-  
+
+  private void updateGlueTable(){
+    String topicName = tp.topic();
+    String s3PathForTable= connectorConfig.getBucketName()+"/"+topicsDir;
+    try {
+      metastore.updateMetastoreThroughGlueSdk(topicName, sinkRecordForSchemaChange, s3PathForTable,
+              globalCurrentEncodedPartition);
+    }catch (AlreadyExistsException e) {
+      log.error("Table already exists, e= ", e);
+    }
+  }
+
+  private void createGlueTablePartition() {
+    String topicName = tp.topic();
+    String s3PathForTablePartition = connectorConfig.getBucketName() + "/" + topicsDir;
+    try {
+      metastore.createPartition(topicName, s3PathForTablePartition, globalCurrentEncodedPartition);
+    } catch (AlreadyExistsException e) {
+      log.error("Partition already exists, e= ", e);
+    }
+  }
+
   private void commitFiles() {
     boolean isPartitionChanged = false;
     currentStartOffset = minStartOffset();
     try {
       for (Map.Entry<String, String> entry : commitFiles.entrySet()) {
         String encodedPartition = entry.getKey();
-        if(!isPartitionChanged && !(encodedPartition.equalsIgnoreCase(globalCurrentEncodedPartition))) {
-            isPartitionChanged = true;
-            globalCurrentEncodedPartition = encodedPartition;
-            log.info("isPartitionChanged = true, reason = encoded partition " + encodedPartition  + " does not match globalPartition " + globalCurrentEncodedPartition);
+        if (!isPartitionChanged && !(encodedPartition.equalsIgnoreCase(globalCurrentEncodedPartition))) {
+          isPartitionChanged = true;
+          log.info("isPartitionChanged = true, reason = encoded partition " + encodedPartition
+                  + " does not match globalPartition " + globalCurrentEncodedPartition);
+          globalCurrentEncodedPartition = encodedPartition;
         }
         commitFile(encodedPartition);
         if (isTaggingEnabled) {
@@ -590,17 +611,25 @@ public class TopicPartitionWriter {
         recordCounts.remove(encodedPartition);
 
         log.debug("Committed {} for {}", entry.getValue(), tp);
-        if(!schemaToBeChanged && isPartitionChanged) {
-            if(!metastore.isPartitionAvailable(tp.topic().toString(), globalCurrentEncodedPartition)) {
-                schemaToBeChanged = true;
-              log.info("schemaToBeChanged = true, reason = parition is not available " + globalCurrentEncodedPartition);
-            }
-        }
         if(schemaToBeChanged) {
-          updateMetastore();
+          updateGlueTable();
           schemaToBeChanged = false;
         }
+        if (isPartitionChanged && !metastore.isPartitionAvailable(tp.topic().toString(),
+                globalCurrentEncodedPartition)) {
+          log.info("creating new partition, reason = parition is not available " + globalCurrentEncodedPartition);
+          createGlueTablePartition();
+        }
       }
+    } catch (ResourceNumberLimitExceededException e) {
+      if (e.getMessage().contains("TABLE_VERSION")) {
+        log.info("Table versions exceeded, starting deleting old versions");
+        metastore.deleteExcessGlueTableVersions(tp.topic());
+      }
+    } catch (AWSGlueException e) {
+      log.info("Exception while updating through glue api {}, e= ", tp.topic(), e);
+      //Running glue crawler on glue api failure
+      updateMetastore();
     } catch (ConnectException e) {
       throw new RetriableException(e);
     }
@@ -612,6 +641,7 @@ public class TopicPartitionWriter {
     baseRecordTimestamp = null;
     log.info("Files committed to S3. Target commit offset for {} is {}", tp, offsetToCommit);
   }
+
 
   private void commitFile(String encodedPartition) {
     if (!startOffsets.containsKey(encodedPartition)) {
