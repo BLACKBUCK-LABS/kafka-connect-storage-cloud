@@ -43,14 +43,14 @@ public class GlueMetastore implements IMetastore {
         String[] parts = name.split("\\.");
         String databaseName=parts[0];
         String tableName = name.replace(".", "_");
-        List<Column>partitionKeys= getPartitionKeysUsingPartition(partition);
+        List<Column>partitionKeys = getPartitionKeysUsingPartition(partition);
         List<Column> columns = getListOfColumns(sinkRecord);
         StorageDescriptor storageDescriptor = getDefaultStorageDescriptor();
         storageDescriptor.setColumns(columns);
         storageDescriptor.setLocation(buildS3Paths(s3Path,name));
-        TableInput tableInput=new TableInput().withName(tableName).withPartitionKeys(partitionKeys)
+        TableInput tableInput = new TableInput().withName(tableName).withPartitionKeys(partitionKeys)
                 .withStorageDescriptor(storageDescriptor);
-        Table table =checkIfTableExists(databaseName, tableName);
+        Table table = checkIfTableExists(databaseName, tableName);
         if(table!=null){
             if(checkIfUpdateRequired(table, tableInput)){
                 log.info("Table exists, updating table {}", tableName);
@@ -153,8 +153,7 @@ public class GlueMetastore implements IMetastore {
 
     }
     private Boolean checkIfUpdateRequired(Table table, TableInput tableInput) {
-        if (tableInput.getStorageDescriptor().getColumns().size() != table.getStorageDescriptor().getColumns().size()
-                || tableInput.getPartitionKeys().size() != table.getPartitionKeys().size()) {
+        if (tableInput.getPartitionKeys().size() != table.getPartitionKeys().size()) {
             return true;
         }
         if (!table.getStorageDescriptor().getLocation().equals(tableInput.getStorageDescriptor().getLocation())) {
@@ -209,14 +208,12 @@ public class GlueMetastore implements IMetastore {
     }
     private List<Column> getListOfColumns(SinkRecord sinkRecord) {
         List<Column> columns= new ArrayList<>();
-//        log.info("Sink record schema {}", sinkRecord.valueSchema().fields());
         for (Field field: sinkRecord.valueSchema().fields()){
             Column column= new Column();
             column.setName(field.name());
             column.setType(GlueDataType.getDataType(field.schema()));
             columns.add(column);
         }
-//        log.info("New schema {}", columns);
         return columns;
     }
 

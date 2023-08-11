@@ -1,5 +1,7 @@
 package io.confluent.connect.s3.metastore;
 
+import org.apache.kafka.connect.data.Decimal;
+import org.apache.kafka.connect.data.Field;
 import org.apache.kafka.connect.data.Schema;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -7,6 +9,11 @@ import org.slf4j.LoggerFactory;
 import java.util.Locale;
 
 public class GlueDataType {
+
+    private final static String DECIMAL_DATATYPE = "decimal(%s,%s)";
+    private final static String DECIMAL_PRECISION = "connect.decimal.precision";
+    private final static String BINARY_DATATYPE = "binary";
+    private final static String STRUCT_DATATYPE = "struct";
     private static final Logger log = LoggerFactory.getLogger(GlueDataType.class);
     public static String getDataType(Schema schema){
         switch (schema.type()){
@@ -24,11 +31,36 @@ public class GlueDataType {
             return MapType.MAP.getName(schema.keySchema(), schema.valueSchema());
         case ARRAY:
             return ArrayType.ARRAY.getName(schema.valueSchema());
+        case BYTES:
+            return getBytesDataType(schema);
+        case STRUCT:
+            return getStructDatatype(schema);
         }
         return PrimitiveType.STRING.getName();
     }
 
-    public static enum PrimitiveType {
+    private static String getStructDatatype(Schema schema) {
+        StringBuilder structDatatype = new StringBuilder(STRUCT_DATATYPE);
+        structDatatype.append("<");
+        for (Field field: schema.fields()) {
+            structDatatype.append(field.name());
+            structDatatype.append(":");
+            structDatatype.append(getDataType(field.schema()));
+            structDatatype.append(",");
+        }
+        structDatatype.deleteCharAt(structDatatype.length() - 1);
+        structDatatype.append(">");
+        return structDatatype.toString();
+    }
+
+    private static String getBytesDataType(Schema schema) {
+        if (Decimal.LOGICAL_NAME.equals(schema.name())) {
+            return String.format(DECIMAL_DATATYPE, schema.parameters().get(DECIMAL_PRECISION), schema.parameters().get(Decimal.SCALE_FIELD));
+        }
+        return BINARY_DATATYPE;
+    }
+
+    public enum PrimitiveType {
         INT,
         BIGINT,
         DOUBLE,
@@ -38,7 +70,7 @@ public class GlueDataType {
 
         private String name;
 
-        private PrimitiveType() {
+        PrimitiveType() {
             this.name = this.name().toLowerCase(Locale.ROOT);
         }
 
@@ -51,7 +83,7 @@ public class GlueDataType {
         }
     }
 
-    public static enum MapType {
+    public enum MapType {
         MAP("map<keyType,valueType>");
 
         public String name;
@@ -63,17 +95,14 @@ public class GlueDataType {
         public String getName(Schema key, Schema value) {
             String keyType = getPrimitiveType(key.type());
             String valueType = getPrimitiveType(value.type());
-            log.info("keyType and valueType {}, {}", keyType, valueType );
-            log.info("name  {}", this.name );
             this.name = this.name.replaceAll("keyType", keyType);
             this.name = this.name.replaceAll("valueType", valueType);
-            log.info("name after {}", this.name );
             return this.name;
         }
 
     }
 
-    public static enum ArrayType {
+    public enum ArrayType {
         ARRAY("array<type>");
 
         public String name;
@@ -90,7 +119,7 @@ public class GlueDataType {
 
     }
 
-    public static enum TimestampType {
+    public enum TimestampType {
         TIMESTAMP;
 
         public String name;
