@@ -164,13 +164,13 @@ public class GlueMetastore implements IMetastore {
         Map<String, Column> partitionKeyMap = table.getPartitionKeys().stream()
                 .collect(Collectors.toMap(Column::getName, e -> e));
         for (Column column : tableInput.getStorageDescriptor().getColumns()) {
-            Column existingColumn = columnMap.getOrDefault(column.getName(), null);
+            Column existingColumn = columnMap.getOrDefault(column.getName().toLowerCase(), null);
             if (existingColumn == null || !existingColumn.getType().equals(column.getType())) {
                 return true;
             }
         }
         for (Column column : tableInput.getPartitionKeys()) {
-            Column existingPartitionKey = partitionKeyMap.getOrDefault(column.getName(), null);
+            Column existingPartitionKey = partitionKeyMap.getOrDefault(column.getName().toLowerCase(), null);
             if (existingPartitionKey == null || !existingPartitionKey.getType().equals(column.getType())) {
                 return true;
             }

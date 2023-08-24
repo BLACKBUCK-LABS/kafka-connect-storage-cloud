@@ -616,8 +616,8 @@ public class TopicPartitionWriter {
           schemaToBeChanged = false;
         }
         if (isPartitionChanged && !metastore.isPartitionAvailable(tp.topic().toString(),
-                globalCurrentEncodedPartition)) {
-          log.info("creating new partition, reason = parition is not available " + globalCurrentEncodedPartition);
+                encodedPartition)) {
+          log.info("creating new partition, reason = parition is not available " + encodedPartition);
           createGlueTablePartition();
         }
       }
