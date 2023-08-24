@@ -580,11 +580,11 @@ public class TopicPartitionWriter {
     }
   }
 
-  private void createGlueTablePartition() {
+  private void createGlueTablePartition(String encodedPartition) {
     String topicName = tp.topic();
     String s3PathForTablePartition = connectorConfig.getBucketName() + "/" + topicsDir;
     try {
-      metastore.createPartition(topicName, s3PathForTablePartition, globalCurrentEncodedPartition);
+      metastore.createPartition(topicName, s3PathForTablePartition, encodedPartition);
     } catch (AlreadyExistsException e) {
       log.error("Partition already exists, e= ", e);
     }
@@ -618,7 +618,7 @@ public class TopicPartitionWriter {
         if (isPartitionChanged && !metastore.isPartitionAvailable(tp.topic().toString(),
                 encodedPartition)) {
           log.info("creating new partition, reason = parition is not available " + encodedPartition);
-          createGlueTablePartition();
+          createGlueTablePartition(encodedPartition);
         }
       }
     } catch (ResourceNumberLimitExceededException e) {
