@@ -55,6 +55,7 @@ public class S3SinkConnector extends SinkConnector {
 
   @Override
   public void start(Map<String, String> props) {
+    log.info("Starting S3 connector with props {}", props);
     configProps = new HashMap<>(props);
     config = new S3SinkConnectorConfig(props);
     log.info("Starting S3 connector {}", config.getName());
@@ -72,6 +73,7 @@ public class S3SinkConnector extends SinkConnector {
     for (int i = 0; i < maxTasks; ++i) {
       taskConfigs.add(taskProps);
     }
+    log.info("Task configurations: {}", taskConfigs);
     return taskConfigs;
   }
 
@@ -82,6 +84,7 @@ public class S3SinkConnector extends SinkConnector {
 
   @Override
   public ConfigDef config() {
+
     return S3SinkConnectorConfig.getConfig();
   }
 

@@ -33,6 +33,7 @@ public class GlueMetastore implements IMetastore {
 
     @Override
     public void updateMetastoreThroughCrawler(String name) {
+        log.info("Running Glue crawler, name : {}", name);
         StartCrawlerResult startCrawlerResult = awsGlue.startCrawler(new StartCrawlerRequest().withName(name));
         String requestId = startCrawlerResult.getSdkResponseMetadata().getRequestId();
         log.info("Running Glue crawler, name : {}, requestId = {}", name, requestId);
@@ -40,18 +41,25 @@ public class GlueMetastore implements IMetastore {
 
     @Override
     public void updateMetastoreThroughGlueSdk(String name, SinkRecord sinkRecord, String s3Path, String partition){
+        log.info("updateMetastoreThroughGlueSdk {} and sinkRecord {} and s3Path {} and partition {}",
+                name, sinkRecord, s3Path, partition);
         String[] parts = name.split("\\.");
         String databaseName=parts[0];
         String tableName = name.replace(".", "_");
+        log.info("tableName {}", tableName);
         List<Column>partitionKeys = getPartitionKeysUsingPartition(partition);
+        log.info("partitionKeys {}", partitionKeys);
         List<Column> columns = getListOfColumns(sinkRecord);
+        log.info("columns {}", columns);
         StorageDescriptor storageDescriptor = getDefaultStorageDescriptor();
         storageDescriptor.setColumns(columns);
         storageDescriptor.setLocation(buildS3Paths(s3Path,name));
         TableInput tableInput = new TableInput().withName(tableName).withPartitionKeys(partitionKeys)
                 .withStorageDescriptor(storageDescriptor);
+        log.info("tableInput {}", tableInput);
         Table table = checkIfTableExists(databaseName, tableName);
         if(table!=null){
+            log.info("Table exists, updating table {} and {}", tableName,tableInput);
             if(checkIfUpdateRequired(table, tableInput)){
                 log.info("  Table exists, updating table {}", tableName);
                 awsGlue.updateTable(new UpdateTableRequest().withDatabaseName(databaseName)
@@ -226,6 +234,7 @@ public class GlueMetastore implements IMetastore {
                     .withName(tableName)).getTable();
             // If the getTable request succeeds, the table exists
         } catch (Exception e) {
+            log.error("Error while checking if table exists", e);
             if (e instanceof EntityNotFoundException){
                 log.info("Entity does not exist");
                 return null;

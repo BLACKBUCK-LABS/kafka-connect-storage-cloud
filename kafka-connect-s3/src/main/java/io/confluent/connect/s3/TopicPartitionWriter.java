@@ -209,6 +209,7 @@ public class TopicPartitionWriter {
 
     while (!buffer.isEmpty()) {
       try {
+        log.info("DEBUGGER-v1: call executeState");
         executeState(now);
       } catch (SchemaProjectorException | IllegalWorkerStateException e) {
         throw new ConnectException(e);
@@ -219,6 +220,7 @@ public class TopicPartitionWriter {
 
   @SuppressWarnings("fallthrough")
   private void executeState(long now) {
+    log.info("DEBUGGER-v1: call state {}", state);
     switch (state) {
       case WRITE_STARTED:
         pause();
@@ -234,6 +236,7 @@ public class TopicPartitionWriter {
         }
 
         Schema valueSchema = record.valueSchema();
+        log.info("DEBUGGER-v1: valueSchema {}",valueSchema);
         String encodedPartition = partitioner.encodePartition(record, now);
         Schema currentValueSchema = currentSchemas.get(encodedPartition);
         if (currentValueSchema == null) {
@@ -247,7 +250,7 @@ public class TopicPartitionWriter {
                 globalCurrentSchema = record.valueSchema();
                 schemaToBeChanged = true;
                 sinkRecordForSchemaChange=record;
-                log.info("schemaToBeChanged=true reason=schema changed");
+                log.info("schemaToBeChanged=true reason=schema changed {}",record);
             }
 
         }
@@ -263,6 +266,7 @@ public class TopicPartitionWriter {
 
         // fallthrough
       case SHOULD_ROTATE:
+        log.info("DEBUGGER-v1: call commitFiles");
         commitFiles();
         nextState();
         // fallthrough
@@ -475,6 +479,8 @@ public class TopicPartitionWriter {
       return writers.get(encodedPartition);
     }
     String commitFilename = getCommitFilename(encodedPartition);
+    log.info("DEBUGGER-v1: call getCommitFilename {} encodedPartition {}",
+            commitFilename,encodedPartition);
     log.debug(
         "Creating new writer encodedPartition='{}' filename='{}'",
         encodedPartition,
@@ -572,6 +578,7 @@ public class TopicPartitionWriter {
   private void updateGlueTable(){
     String topicName = tp.topic();
     String s3PathForTable= connectorConfig.getBucketName()+"/"+topicsDir;
+    log.info("DEBUGGER-v1: call update glue table {} and {}", tp.topic(),s3PathForTable);
     try {
       metastore.updateMetastoreThroughGlueSdk(topicName, sinkRecordForSchemaChange, s3PathForTable,
               globalCurrentEncodedPartition);
@@ -596,9 +603,11 @@ public class TopicPartitionWriter {
   private void commitFiles() {
     boolean isPartitionChanged = false;
     currentStartOffset = minStartOffset();
+    log.info("DEBUGGER-v1: call commitFiles currentStartOffset {}",currentStartOffset);
     try {
       for (Map.Entry<String, String> entry : commitFiles.entrySet()) {
         String encodedPartition = entry.getKey();
+        log.info("DEBUGGER-v1: call commitFile encodedPartition {} and {} ",encodedPartition,entry.getValue());
         if (!isPartitionChanged && !(encodedPartition.equalsIgnoreCase(globalCurrentEncodedPartition))) {
           isPartitionChanged = true;
           log.info("isPartitionChanged = true, reason = encoded partition " + encodedPartition
@@ -680,7 +689,7 @@ public class TopicPartitionWriter {
       return;
     }
 
-    log.debug("Object to tag is: {}", s3ObjectPath);
+    log.info("Object to tag is: {}", s3ObjectPath);
     Map<String, String> tags = new HashMap<>();
     tags.put("startOffset", Long.toString(startOffset));
     tags.put("endOffset", Long.toString(endOffset));
