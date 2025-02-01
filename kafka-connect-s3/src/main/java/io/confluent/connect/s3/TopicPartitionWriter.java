@@ -577,6 +577,9 @@ public class TopicPartitionWriter {
               globalCurrentEncodedPartition);
     }catch (AlreadyExistsException e) {
       log.error("Table already exists, e= ", e);
+    }catch (Exception e) {
+      log.error("DEBUGGER-v1: call Got exception while updating through glue api {}, e= ", tp.topic(), e);
+      //Running glue crawler on glue api failure
     }
   }
 
@@ -610,8 +613,9 @@ public class TopicPartitionWriter {
         endOffsets.remove(encodedPartition);
         recordCounts.remove(encodedPartition);
 
-        log.debug("Committed {} for {}", entry.getValue(), tp);
+        log.info("DEBUGGER-v1: call Committed key {}  {} for {}",entry.getKey(), entry.getValue(), tp);
         if(schemaToBeChanged) {
+          log.info("DEBUGGER-v1: call update glue table {}", tp.topic());
           updateGlueTable();
           schemaToBeChanged = false;
         }

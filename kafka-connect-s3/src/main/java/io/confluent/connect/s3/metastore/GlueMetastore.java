@@ -53,13 +53,14 @@ public class GlueMetastore implements IMetastore {
         Table table = checkIfTableExists(databaseName, tableName);
         if(table!=null){
             if(checkIfUpdateRequired(table, tableInput)){
-                log.info("Table exists, updating table {}", tableName);
+                log.info("  Table exists, updating table {}", tableName);
                 awsGlue.updateTable(new UpdateTableRequest().withDatabaseName(databaseName)
                         .withTableInput(tableInput));
             }
 
         } else {
             log.info("Creating new table {}", tableName);
+            log.info("DEBUGGER-v1: call create table {} and tableInput {}", databaseName,tableInput);
             awsGlue.createTable(new CreateTableRequest().withDatabaseName(databaseName).withTableInput(tableInput));
         }
     }
@@ -101,6 +102,7 @@ public class GlueMetastore implements IMetastore {
         createPartitionRequest.setPartitionInput(
                 new PartitionInput().withValues(getPartitionValuesUsingPartition(partition))
                         .withStorageDescriptor(storageDescriptor));
+        log.info("createPartitionRequest {}", createPartitionRequest);
         awsGlue.createPartition(createPartitionRequest);
     }
 
