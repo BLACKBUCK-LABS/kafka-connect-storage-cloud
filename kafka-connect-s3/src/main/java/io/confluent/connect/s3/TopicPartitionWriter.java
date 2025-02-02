@@ -228,6 +228,7 @@ public class TopicPartitionWriter {
         // fallthrough
       case WRITE_PARTITION_PAUSED:
         SinkRecord record = buffer.peek();
+        log.info("DEBUGGER-v1: record {}",record);
         if (timestampExtractor != null) {
           currentTimestamp = timestampExtractor.extract(record, now);
           if (baseRecordTimestamp == null) {
@@ -584,9 +585,6 @@ public class TopicPartitionWriter {
               globalCurrentEncodedPartition);
     }catch (AlreadyExistsException e) {
       log.error("Table already exists, e= ", e);
-    }catch (Exception e) {
-      log.error("DEBUGGER-v1: call Got exception while updating through glue api {}, e= ", tp.topic(), e);
-      //Running glue crawler on glue api failure
     }
   }
 
@@ -607,7 +605,8 @@ public class TopicPartitionWriter {
     try {
       for (Map.Entry<String, String> entry : commitFiles.entrySet()) {
         String encodedPartition = entry.getKey();
-        log.info("DEBUGGER-v1: call commitFile encodedPartition {} and {} ",encodedPartition,entry.getValue());
+        log.info("DEBUGGER-v1: call commitFile encodedPartition {} and {} and {}",encodedPartition,entry.getValue()
+                ,globalCurrentEncodedPartition);
         if (!isPartitionChanged && !(encodedPartition.equalsIgnoreCase(globalCurrentEncodedPartition))) {
           isPartitionChanged = true;
           log.info("isPartitionChanged = true, reason = encoded partition " + encodedPartition
