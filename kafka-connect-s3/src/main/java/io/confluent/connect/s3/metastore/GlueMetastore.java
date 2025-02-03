@@ -41,39 +41,64 @@ public class GlueMetastore implements IMetastore {
 
     @Override
     public void updateMetastoreThroughGlueSdk(String name, SinkRecord sinkRecord, String s3Path, String partition){
-        log.info("updateMetastoreThroughGlueSdk {} and sinkRecord {} and s3Path {} and partition {}",
-                name, sinkRecord, s3Path, partition);
         String[] parts = name.split("\\.");
         String databaseName=parts[0];
         String tableName = name.replace(".", "_");
-        log.info("tableName {}", tableName);
         List<Column>partitionKeys = getPartitionKeysUsingPartition(partition);
-        log.info("partitionKeys {}", partitionKeys);
+        log.info("Partition keys for {}: {}", name ,partitionKeys);
         List<Column> columns = getListOfColumns(sinkRecord);
-        log.info("columns {}", columns);
         StorageDescriptor storageDescriptor = getDefaultStorageDescriptor();
         storageDescriptor.setColumns(columns);
         storageDescriptor.setLocation(buildS3Paths(s3Path,name));
         TableInput tableInput = new TableInput().withName(tableName).withPartitionKeys(partitionKeys)
                 .withStorageDescriptor(storageDescriptor);
-        log.info("tableInput {}", tableInput);
         Table table = checkIfTableExists(databaseName, tableName);
         if(table!=null){
-            log.info("Table exists, updating table {} and {}", tableName,tableInput);
             if(checkIfUpdateRequired(table, tableInput)){
-                log.info("  Table exists, updating table {}", tableName);
-                awsGlue.updateTable(new UpdateTableRequest().withDatabaseName(databaseName)
-                        .withTableInput(tableInput));
+                log.info("Table exists, updating table {}", tableName);
+                List<Column> newSchemaColumns  = mergeColumns(table.getStorageDescriptor().getColumns(), columns);
+                TableInput newTableInput = getTableInput(tableName, name, s3Path, partitionKeys, newSchemaColumns);
+                UpdateTableResult updateTableResult = awsGlue.updateTable(new UpdateTableRequest().withDatabaseName(databaseName)
+                        .withTableInput(newTableInput));
+                log.info("Table updated {}", updateTableResult);
             }
 
         } else {
             log.info("Creating new table {}", tableName);
-            log.info("DEBUGGER-v1: call create table {} and tableInput {}", databaseName,tableInput);
-            awsGlue.createTable(new CreateTableRequest().withDatabaseName(databaseName).withTableInput(tableInput));
+            CreateTableRequest createTableRequest = new CreateTableRequest().withDatabaseName(databaseName).withTableInput(tableInput);
+            log.info("Creating table with request {}", createTableRequest);
+            CreateTableResult createTableResult = awsGlue.createTable(createTableRequest);
+            log.info("Table created response {}", createTableResult);
         }
     }
 
+    private List<Column> mergeColumns(List<Column> existingColumns, List<Column> newColumns) {
+        log.info("Merging old schema and new schema");
+        List<Column> mergedColumns = new ArrayList<>(newColumns);
+        log.info("New schema columns {}", mergedColumns.stream().map(Column::getName).collect(Collectors.toList()));
 
+        log.info("Existing schema columns {}", existingColumns.stream().map(Column::getName).collect(Collectors.toList()));
+        Map<String, Column> newColumnMap = newColumns.stream()
+                .collect(Collectors.toMap(Column::getName, e -> e));
+
+        // Adding columns from existing table to new table event if new record do not have data for that column
+        for (Column existingColumn : existingColumns) {
+            String existingColumnName = existingColumn.getName().toLowerCase();
+            if (!newColumnMap.containsKey(existingColumnName)) {
+                mergedColumns.add(existingColumn);
+            }
+        }
+        log.info("Merged schema columns {}", mergedColumns.stream().map(Column::getName).collect(Collectors.toList()));
+        return mergedColumns;
+    }
+
+    private TableInput getTableInput(String tableName, String topicName, String s3Path, List<Column> partitionKeys, List<Column> columns) {
+        StorageDescriptor storageDescriptor = getDefaultStorageDescriptor();
+        storageDescriptor.setColumns(columns);
+        storageDescriptor.setLocation(buildS3Paths(s3Path,topicName));
+        return new TableInput().withName(tableName).withPartitionKeys(partitionKeys)
+                .withStorageDescriptor(storageDescriptor);
+    }
 
     @Override
     public boolean isPartitionAvailable(String topicName, String encodedPartition) {
