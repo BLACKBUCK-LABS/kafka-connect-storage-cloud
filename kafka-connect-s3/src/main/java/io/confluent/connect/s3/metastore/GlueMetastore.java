@@ -81,9 +81,10 @@ public class GlueMetastore implements IMetastore {
         Map<String, Column> newColumnMap = newColumns.stream()
                 .collect(Collectors.toMap((column -> column.getName().toLowerCase()), e -> e));
 
-        // Adding columns from existing table to new table event if new record do not have data for that column
+        log.info("New column map {}", newColumnMap);
         for (Column existingColumn : existingColumns) {
             String existingColumnName = existingColumn.getName().toLowerCase();
+            log.info("Existing column name {}", existingColumnName);
             if (!newColumnMap.containsKey(existingColumnName)) {
                 mergedColumns.add(existingColumn);
             }
