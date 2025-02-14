@@ -209,7 +209,7 @@ public class TopicPartitionWriter {
 
     while (!buffer.isEmpty()) {
       try {
-        log.info("DEBUGGER-v1: call executeState");
+        log.debug("DEBUGGER-v1: call executeState");
         executeState(now);
       } catch (SchemaProjectorException | IllegalWorkerStateException e) {
         throw new ConnectException(e);
@@ -220,7 +220,7 @@ public class TopicPartitionWriter {
 
   @SuppressWarnings("fallthrough")
   private void executeState(long now) {
-    log.info("DEBUGGER-v1: call state {}", state);
+    log.debug("DEBUGGER-v1: call state {}", state);
     switch (state) {
       case WRITE_STARTED:
         pause();
@@ -228,7 +228,7 @@ public class TopicPartitionWriter {
         // fallthrough
       case WRITE_PARTITION_PAUSED:
         SinkRecord record = buffer.peek();
-        log.info("DEBUGGER-v1: record {}",record);
+        log.debug("DEBUGGER-v1: record {}",record);
         if (timestampExtractor != null) {
           currentTimestamp = timestampExtractor.extract(record, now);
           if (baseRecordTimestamp == null) {
@@ -237,7 +237,7 @@ public class TopicPartitionWriter {
         }
 
         Schema valueSchema = record.valueSchema();
-        log.info("DEBUGGER-v1: valueSchema {}",valueSchema);
+        log.debug("DEBUGGER-v1: valueSchema {}",valueSchema);
         String encodedPartition = partitioner.encodePartition(record, now);
         Schema currentValueSchema = currentSchemas.get(encodedPartition);
         if (currentValueSchema == null) {
@@ -267,7 +267,7 @@ public class TopicPartitionWriter {
 
         // fallthrough
       case SHOULD_ROTATE:
-        log.info("DEBUGGER-v1: call commitFiles");
+        log.debug("DEBUGGER-v1: call commitFiles");
         commitFiles();
         nextState();
         // fallthrough
@@ -480,7 +480,7 @@ public class TopicPartitionWriter {
       return writers.get(encodedPartition);
     }
     String commitFilename = getCommitFilename(encodedPartition);
-    log.info("DEBUGGER-v1: call getCommitFilename {} encodedPartition {}",
+    log.debug("DEBUGGER-v1: call getCommitFilename {} encodedPartition {}",
             commitFilename,encodedPartition);
     log.debug(
         "Creating new writer encodedPartition='{}' filename='{}'",
@@ -579,7 +579,7 @@ public class TopicPartitionWriter {
   private void updateGlueTable(){
     String topicName = tp.topic();
     String s3PathForTable= connectorConfig.getBucketName()+"/"+topicsDir;
-    log.info("DEBUGGER-v1: call update glue table {} and {}", tp.topic(),s3PathForTable);
+    log.debug("DEBUGGER-v1: call update glue table {} and {}", tp.topic(),s3PathForTable);
     try {
       metastore.updateMetastoreThroughGlueSdk(topicName, sinkRecordForSchemaChange, s3PathForTable,
               globalCurrentEncodedPartition);
@@ -601,11 +601,11 @@ public class TopicPartitionWriter {
   private void commitFiles() {
     boolean isPartitionChanged = false;
     currentStartOffset = minStartOffset();
-    log.info("DEBUGGER-v1: call commitFiles currentStartOffset {}",currentStartOffset);
+    log.debug("DEBUGGER-v1: call commitFiles currentStartOffset {}",currentStartOffset);
     try {
       for (Map.Entry<String, String> entry : commitFiles.entrySet()) {
         String encodedPartition = entry.getKey();
-        log.info("DEBUGGER-v1: call commitFile encodedPartition {} and {} and {}",encodedPartition,entry.getValue()
+        log.debug("DEBUGGER-v1: call commitFile encodedPartition {} and {} and {}",encodedPartition,entry.getValue()
                 ,globalCurrentEncodedPartition);
         if (!isPartitionChanged && !(encodedPartition.equalsIgnoreCase(globalCurrentEncodedPartition))) {
           isPartitionChanged = true;
@@ -621,9 +621,9 @@ public class TopicPartitionWriter {
         endOffsets.remove(encodedPartition);
         recordCounts.remove(encodedPartition);
 
-        log.info("DEBUGGER-v1: call Committed key {}  {} for {}",entry.getKey(), entry.getValue(), tp);
+        log.debug("DEBUGGER-v1: call Committed key {}  {} for {}",entry.getKey(), entry.getValue(), tp);
         if(schemaToBeChanged) {
-          log.info("DEBUGGER-v1: call update glue table {}", tp.topic());
+          log.debug("DEBUGGER-v1: call update glue table {}", tp.topic());
           updateGlueTable();
           schemaToBeChanged = false;
         }
