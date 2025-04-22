@@ -635,6 +635,7 @@ public class TopicPartitionWriter {
       }
     } catch (ResourceNumberLimitExceededException e) {
       if (e.getMessage().contains("TABLE_VERSION")) {
+        log.info(e.getMessage());
         log.info("Table versions exceeded, starting deleting old versions");
         metastore.deleteExcessGlueTableVersions(tp.topic());
       }
